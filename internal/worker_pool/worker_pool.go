@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"training/internal/task"
-	"training/internal/worker"
+	"github.com/cfif1982/workerpool/internal/task"
+	"github.com/cfif1982/workerpool/internal/worker"
 )
 
 type TaskReceiverI interface {

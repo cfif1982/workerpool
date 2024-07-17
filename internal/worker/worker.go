@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"training/internal/task"
+	"github.com/cfif1982/workerpool/internal/task"
 )
 
 const taskTimeOut = time.Duration(4) * time.Second // таймаут выполнения одной задачи

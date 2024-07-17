@@ -3,9 +3,10 @@ package main
 import (
 	"fmt"
 	"time"
-	ressaver "training/internal/result_saver"                   // путь к вашему пакету examples
-	trchan "training/internal/task_receiver/task_receiver_chan" // путь к вашему пакету examples
-	workerpool "training/internal/worker_pool"                  // путь к вашему пакету examples
+
+	ressaver "github.com/cfif1982/workerpool/internal/result_saver"
+	trchan "github.com/cfif1982/workerpool/internal/task_receiver/task_receiver_chan"
+	workerpool "github.com/cfif1982/workerpool/internal/worker_pool"
 )
 
 const countTasks = 10
