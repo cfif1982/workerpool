@@ -9,6 +9,10 @@ import (
 	"github.com/cfif1982/workerpool/internal/task"
 )
 
+type TaskReceiverI interface {
+	GetTask(ctx context.Context) (*task.Task, bool) // передаем контекст для отмены ожидания задачи
+}
+
 const taskTimeOut = time.Duration(4) * time.Second // таймаут выполнения одной задачи
 
 type Worker struct {
@@ -26,7 +30,8 @@ func NewWorker(id int, queue chan *task.Task) *Worker {
 }
 
 // начало работы воркера
-func (w *Worker) Start(ctx context.Context, wg *sync.WaitGroup) {
+func (w *Worker) Start(ctx context.Context, wg *sync.WaitGroup, tr TaskReceiverI) {
+
 	defer wg.Done()
 
 	for {
@@ -36,37 +41,40 @@ func (w *Worker) Start(ctx context.Context, wg *sync.WaitGroup) {
 		}
 
 		select {
-		// берем задачу из очереди
-		case t, ok := <-w.queueCH:
-			// если канал закрыт
-			if !ok {
-				fmt.Printf("worker %d закрыт \n", w.ID)
-				return
-			}
-
-			// задаем контекст для отмены задачи
-			ctxTaskTimeOut, taskCancelTimeOut := context.WithTimeout(ctx, taskTimeOut)
-			defer taskCancelTimeOut()
-
-			fmt.Printf("worker %d начал задачу %d \n", w.ID, t.ID)
-
-			// выполняем задачу
-			t.Do(ctxTaskTimeOut)
-
-			// проверяем, как завершился контекст
-			switch ctxTaskTimeOut.Err() {
-			case context.Canceled:
-				fmt.Printf("Прервали работу задачи %d\n", t.ID)
-			case context.DeadlineExceeded:
-				fmt.Printf("Истекло время работы задачи %d\n", t.ID)
-			default:
-				fmt.Printf("worker %d закончил задачу %d\n", w.ID, t.ID)
-			}
-
 		// следим за контекстом для отмены
 		case <-ctx.Done():
 			fmt.Printf("worker %d отменен\n", w.ID)
 			return
+
+		// берем задачу из очереди
+		default:
+			task, opened := tr.GetTask(ctx)
+
+			// если канал закрыт
+			if !opened {
+				fmt.Printf("worker %d закрыт \n", w.ID)
+				return
+			}
+
+			// задаем контекст для отмены задачи по времени
+			ctxTaskTimeOut, taskCancel := context.WithTimeout(ctx, taskTimeOut)
+			defer taskCancel()
+
+			fmt.Printf("worker %d начал задачу %d \n", w.ID, task.ID)
+
+			// выполняем задачу
+			task.Do(ctxTaskTimeOut)
+
+			// проверяем, как завершился контекст
+			switch ctxTaskTimeOut.Err() {
+			case context.Canceled:
+				fmt.Printf("Прервали работу задачи %d\n", task.ID)
+			case context.DeadlineExceeded:
+				fmt.Printf("Истекло время работы задачи %d\n", task.ID)
+			default:
+				fmt.Printf("worker %d закончил задачу %d\n", w.ID, task.ID)
+			}
+
 		}
 
 	}

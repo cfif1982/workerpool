@@ -4,31 +4,29 @@ import (
 	"fmt"
 	"time"
 
-	ressaver "github.com/cfif1982/workerpool/internal/result_saver"
+	rschan "github.com/cfif1982/workerpool/internal/result_saver/result_saver_chan"
 	trchan "github.com/cfif1982/workerpool/internal/task_receiver/task_receiver_chan"
 	workerpool "github.com/cfif1982/workerpool/internal/worker_pool"
 )
 
-const countTasks = 10
 const countWorkers = 3
-const totalWorkTimeOut = 10 // таймаут общего времени работы всех воркеров
 
 func main() {
-	// Вызов примера MainWorkerpool
-	fmt.Println("=== MainWorkerpool() ===")
-
-	// создаем task receiver
-	tr := trchan.NewTaskReceiverChan("addr.txt")
 
 	// создаем result saver
-	rs := ressaver.NewResultReceiver()
+	rs := rschan.NewResultSaver()
 	defer rs.Close() // закрываем канал в result saver
 
-	wp := workerpool.NewWorkerPool(countTasks, countWorkers, totalWorkTimeOut, tr, rs)
+	// создаем task receiver
+	tr := trchan.NewTaskReceiverChan("addr.txt", rs)
+
+	// создаем Worker Pool
+	wp := workerpool.NewWorkerPool(countWorkers, tr, rs)
 
 	// запускаем таймер для отображения счетчика времени
 	go timer()
 
+	// запускаем worker pool
 	wp.Start()
 
 }

@@ -3,42 +3,65 @@ package task
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"io"
+	"net/http"
 	"time"
+
+	"github.com/cfif1982/workerpool/internal/result"
 )
 
-const taskMaxDuration = 10 // максимальное время для rand
-
-type Task struct {
-	ID       int
-	duration time.Duration // время выполнения одной задачи
+type ResultSaverI interface {
+	SaveResult(result *result.Result)
 }
 
-func NewTask(id int) *Task {
+type Task struct {
+	ID  int
+	URL string
+	rs  ResultSaverI
+}
+
+func NewTask(id int, url string, rs ResultSaverI) *Task {
 	return &Task{
-		ID:       id,
-		duration: time.Duration((rand.Intn(taskMaxDuration-1) + 1)) * time.Second, // случайное время на выполнение задачи,
+		ID:  id,
+		URL: url,
+		rs:  rs,
 	}
 }
 
 // выполнение задачи
 func (t *Task) Do(ctx context.Context) {
-	deadline, _ := ctx.Deadline() // узнаем время для отмены задачи, чтобы вывести эти данные
-	sleepTime := time.Until(deadline)
 
-	fmt.Printf("задача %d начата, продолжительность: %f, deadline: %f\n", t.ID, t.duration.Seconds(), sleepTime.Seconds())
-
-	for {
-		select {
-		// следим за контекстом для отмены работы
-		case <-ctx.Done():
-			fmt.Printf("задача %d отменена\n", t.ID)
-			return
-		// выводим сообщение о завершении работы
-		case <-time.After(t.duration):
-			fmt.Printf("задача %d закончена\n", t.ID)
-			return
-		}
+	// Создаем HTTP-запрос с контекстом
+	req, err := http.NewRequestWithContext(ctx, "GET", t.URL, nil)
+	if err != nil {
+		fmt.Println("Ошибка при создании запроса:", err)
+		return
 	}
 
+	// Засекаем время перед отправкой запроса
+	startTime := time.Now()
+
+	// Отправляем запрос
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("Ошибка при отправке запроса:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Засекаем время после получения ответа
+	endTime := time.Now()
+	duration := endTime.Sub(startTime)
+
+	// Читаем и выводим ответ
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Ошибка при чтении ответа:", err)
+		return
+	}
+
+	result := result.NewResult(body, duration)
+
+	t.rs.SaveResult(result)
 }

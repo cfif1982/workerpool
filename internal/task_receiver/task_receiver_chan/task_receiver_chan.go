@@ -2,40 +2,66 @@ package rcvrchan
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"sync"
+
+	"github.com/cfif1982/workerpool/internal/result"
+	"github.com/cfif1982/workerpool/internal/task"
 )
 
-type TaskReceiverChan struct {
-	lineCH chan string
+type ResultSaverI interface {
+	SaveResult(result *result.Result)
 }
 
-func NewTaskReceiverChan(filename string) *TaskReceiverChan {
+type TaskReceiverChan struct {
+	filename string
+	taskCH   chan *task.Task
+	rs       ResultSaverI
+}
 
-	file, err := os.Open(filename)
-	if err != nil {
-		fmt.Println("Ошибка при открытии файла:", err)
-		return nil
+func NewTaskReceiverChan(filename string, rs ResultSaverI) *TaskReceiverChan {
+
+	return &TaskReceiverChan{
+		filename: filename,
+		taskCH:   make(chan *task.Task),
+		rs:       rs,
 	}
+}
 
-	defer file.Close()
-
-	// создаем объект
-	// имеет ли здесь смысл создавать буферизированный канал? по идее можно создавть буфер по количеству воркеров
-	// по идее это должно уменьшить количество блокировок
-	t := &TaskReceiverChan{
-		lineCH: make(chan string),
-	}
+// читаем следующую строку из канала
+// wg нужен для того, чтобы программа не закончилась раньше того, как закончится генерация задач
+func (t *TaskReceiverChan) Start(wg *sync.WaitGroup) {
 
 	// Чтение файла и отправка строк в канал
 	go func() {
+		defer wg.Done() // по завершении чтения всего файла уменьшаем wg
+
+		file, err := os.Open(t.filename)
+		if err != nil {
+			fmt.Println("Ошибка при открытии файла:", err)
+			return
+		}
+
+		defer file.Close()
+
+		i := 0 // счетчки задач
+
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
-			// отправляем строки в канал
-			t.lineCH <- scanner.Text()
+
+			i++
+
+			// создаем задачу
+			task := task.NewTask(i, scanner.Text(), t.rs)
+
+			// отправляем задачи в канал
+			t.taskCH <- task
 		}
+
 		// по завершении считывания всех строк закрываем канал
-		close(t.lineCH)
+		close(t.taskCH)
 
 		// если при чтении произошла ошибка, выводим сообщение об этом
 		if err := scanner.Err(); err != nil {
@@ -43,21 +69,24 @@ func NewTaskReceiverChan(filename string) *TaskReceiverChan {
 		}
 
 	}()
-
-	return t
-
 }
 
 // читаем следующую строку из канала
-func (t *TaskReceiverChan) GetTask() (string, bool) {
+// возвращем true если канал открыт, false если канал закрыт
+func (t *TaskReceiverChan) GetTask(ctx context.Context) (*task.Task, bool) {
 
-	// читаем строку из канала
-	str, ok := <-t.lineCH
+	select {
+	// следим за контекстом для отмены
+	case <-ctx.Done():
+		return nil, false
 
-	// Канал закрыт
-	if !ok {
-		return "", false
+		// читаем задачу из канала
+	case task, ok := <-t.taskCH:
+		// Канал закрыт
+		if !ok {
+			return nil, false
+		}
+
+		return task, true
 	}
-
-	return str, true
 }
