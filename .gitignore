@@ -22,5 +22,3 @@ vendor/
 
 # other files
 requests.http
-go.mod
-go.sum

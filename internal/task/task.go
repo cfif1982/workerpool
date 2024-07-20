@@ -10,32 +10,27 @@ import (
 	"github.com/cfif1982/workerpool/internal/result"
 )
 
-type ResultSaverI interface {
-	SaveResult(result *result.Result)
-}
-
 type Task struct {
 	ID  int
 	URL string
-	rs  ResultSaverI
 }
 
-func NewTask(id int, url string, rs ResultSaverI) *Task {
+// конструктор
+func NewTask(id int, url string) *Task {
 	return &Task{
 		ID:  id,
 		URL: url,
-		rs:  rs,
 	}
 }
 
 // выполнение задачи
-func (t *Task) Do(ctx context.Context) {
+func (t *Task) Do(ctx context.Context) *result.Result {
 
 	// Создаем HTTP-запрос с контекстом
 	req, err := http.NewRequestWithContext(ctx, "GET", t.URL, nil)
 	if err != nil {
 		fmt.Println("Ошибка при создании запроса:", err)
-		return
+		return nil
 	}
 
 	// Засекаем время перед отправкой запроса
@@ -46,8 +41,9 @@ func (t *Task) Do(ctx context.Context) {
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println("Ошибка при отправке запроса:", err)
-		return
+		return nil
 	}
+
 	defer resp.Body.Close()
 
 	// Засекаем время после получения ответа
@@ -58,10 +54,9 @@ func (t *Task) Do(ctx context.Context) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Println("Ошибка при чтении ответа:", err)
-		return
+		return nil
 	}
 
-	result := result.NewResult(body, duration)
-
-	t.rs.SaveResult(result)
+	// возвращаем результат работы
+	return result.NewResult(body, duration)
 }

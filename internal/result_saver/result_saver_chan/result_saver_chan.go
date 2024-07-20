@@ -4,35 +4,30 @@ import (
 	"github.com/cfif1982/workerpool/internal/result"
 )
 
+// сохраняем результаты в канал
 type ResultSaverChan struct {
-	resultCH chan *result.Result
+	resultCH chan *result.Result // канал, в который будем сохранять результат работы
 }
 
+// констурктор
 func NewResultSaver() *ResultSaverChan {
 
 	return &ResultSaverChan{
-		resultCH: make(chan *result.Result),
+		resultCH: make(chan *result.Result, 100), // создаем буферизированный канал для теста
 	}
 }
 
-func (r *ResultSaverChan) SaveResult(result *result.Result) {
-	r.resultCH <- result
-}
+// сохраянем результат
+// result - передаваемый результат
+// ok - true если результат получен, false - если результат не получен (работа закончена)
+func (r *ResultSaverChan) SaveResult(result *result.Result, ok bool) {
 
-func (r *ResultSaverChan) Close() {
-	close(r.resultCH)
-}
+	// если работа еще не закончена, то отправляем данные в канал
+	if ok {
+		r.resultCH <- result
 
-// читаем следующий результат из канала
-func (r *ResultSaverChan) GetResult() (*result.Result, bool) {
-
-	// читаем результат из канала
-	res, ok := <-r.resultCH
-
-	// Канал закрыт
-	if !ok {
-		return nil, false
+		// если закончена работа, то закрываем канал
+	} else {
+		close(r.resultCH)
 	}
-
-	return res, true
 }
