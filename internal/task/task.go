@@ -25,6 +25,7 @@ func NewTask(id int, url string) *Task {
 
 // выполнение задачи
 func (t *Task) Do(ctx context.Context) *result.Result {
+	fmt.Println("task started:", t.ID)
 
 	// Создаем HTTP-запрос с контекстом
 	req, err := http.NewRequestWithContext(ctx, "GET", t.URL, nil)
@@ -56,6 +57,8 @@ func (t *Task) Do(ctx context.Context) *result.Result {
 		fmt.Println("Ошибка при чтении ответа:", err)
 		return nil
 	}
+
+	fmt.Println("task finished:", t.ID)
 
 	// возвращаем результат работы
 	return result.NewResult(body, duration)
