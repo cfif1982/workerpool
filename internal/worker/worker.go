@@ -10,13 +10,13 @@ import (
 	"github.com/cfif1982/workerpool/internal/task"
 )
 
-const taskTimeOut = time.Duration(2) * time.Second // таймаут выполнения одной задачи
+const taskTimeOut = time.Duration(5) * time.Second // таймаут выполнения одной задачи
 
 type Worker struct {
 	ID          int
-	taskCH      chan *task.Task     // канал с очередью задач
-	resultCH    chan *result.Result // канал куда отправляется результат
-	closeWorker bool                // флаг закрытия воркера
+	taskCH      <-chan *task.Task     // канал с очередью задач
+	resultCH    chan<- *result.Result // канал куда отправляется результат
+	closeWorker bool                  // флаг закрытия воркера
 }
 
 // конструктор
@@ -31,7 +31,6 @@ func NewWorker(id int, taskCH chan *task.Task, resultCH chan *result.Result) *Wo
 
 // начало работы воркера
 func (w *Worker) Start(ctx context.Context, wg *sync.WaitGroup) {
-
 	defer wg.Done() // по окончании работы уменьшаем wg
 
 	for {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -13,10 +14,9 @@ import (
 	workerpool "github.com/cfif1982/workerpool/internal/worker_pool"
 )
 
-const countWorkers = 10 // начальное количество воркеров
+const countWorkers = 1 // начальное количество воркеров
 
 func main() {
-
 	// создаем task receiver
 	tr := trfile.NewTaskReceiverFile("addr.txt")
 
@@ -38,6 +38,9 @@ func main() {
 	defer cancel()
 
 	// запускаем worker pool
+	// Засекаем время перед началом работы
+	startTime := time.Now()
+
 	// возвращается сигнальный канал о завершении работы  worker pool
 	wpDoneCh := wp.Start(ctxCancel)
 
@@ -49,18 +52,27 @@ func main() {
 
 	// если работа worker pool завершена, то завершаем программу
 	case <-wpDoneCh:
-		return
+		fmt.Println("работа worker pool завершена")
+		// Засекаем время после получения ответа
+		endTime := time.Now()
+		duration := endTime.Sub(startTime)
+
+		fmt.Println("*************************************************")
+		fmt.Printf("общее время выполнения работы: %f s\n", float64(duration)/float64(time.Second))
+		fmt.Printf("воркеров: %d, логических ядер: %d, логических процессоров: %d\n", countWorkers, runtime.NumCPU(), runtime.GOMAXPROCS(0))
+		fmt.Printf("среднее время выполнения запроса: %f ms\n", float64(wp.GetAverageRequestTime())/float64(time.Millisecond))
+		fmt.Println("ФИНИШ")
+
 	}
 
 	// проверяем, как завершился контекст
-	switch ctxCancel.Err() {
-	case context.Canceled:
+	// этот код просто для того, чтобы показать что я умею с этим работать
+	if ctxCancel.Err() == context.Canceled {
 		fmt.Println("Прервали общую работу")
 	}
-
 }
 
-// таймер для отсчета времени
+// таймер для отсчета времени.
 func timer() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()

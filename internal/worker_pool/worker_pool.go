@@ -3,7 +3,6 @@ package workerpool
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
@@ -12,9 +11,9 @@ import (
 	"github.com/cfif1982/workerpool/internal/worker"
 )
 
-const addWorkersRequestDuration = time.Duration(2) * time.Second    // максимальное время выполнения запроса для увеличения количества воркеров
-const deleteWorkersRequestDuration = time.Duration(1) * time.Second // минимальное время выполнения запроса для уменьшения количества воркеров
-const changeWorkersCountTime = time.Duration(5) * time.Second       // время для таймера изменения количества воркеров
+const addWorkersRequestDuration = time.Duration(20) * time.Second    // максимальное время выполнения запроса для увеличения количества воркеров
+const deleteWorkersRequestDuration = time.Duration(10) * time.Second // минимальное время выполнения запроса для уменьшения количества воркеров
+const changeWorkersCountTime = time.Duration(9) * time.Second        // время для таймера изменения количества воркеров
 
 // интерфейс task receiver. Задачи можем получать из файла, из БД, или вообще из интернета
 type TaskReceiverI interface {
@@ -24,17 +23,24 @@ type TaskReceiverI interface {
 
 // интерфейс result saver. Результат может сохраняться в канал, в БД или еще куда
 type ResultSaverI interface {
-	SaveResult(result *result.Result, ok bool) // сохраняет результа
+	SaveResult(result *result.Result) // сохраняет результа
+}
+
+type WorkerI interface {
+	Start(ctx context.Context, wg *sync.WaitGroup)
+	Close()
 }
 
 type WorkerPool struct {
-	countWorkers       int
-	workerResultCH     chan *result.Result // канал для результатов воркеров
-	wg                 sync.WaitGroup
-	tr                 TaskReceiverI
-	rs                 ResultSaverI
-	workers            []*worker.Worker // слайс для хранения воркеров. Нужен для доступа к ним когда нужно закрыть
-	averageRequestTime time.Duration    // среднее время выполнения запроса
+	countWorkers   int
+	workerResultCH chan *result.Result // канал для результатов воркеров
+	wg             sync.WaitGroup
+	tr             TaskReceiverI
+	rs             ResultSaverI
+	// TODO: тут сначала создал chan *WorkerI. При передаче в канал worker была ошибка. В чем особенность ссылок на интерфейс?
+	// или если поле является интерфейсом, то ссылка на структуру, которая реализует этот интерфейс может храниться в этом поле?
+	workersCH          chan WorkerI  // канал для хранения воркеров. Нужен для доступа к ним когда нужно закрыть
+	averageRequestTime time.Duration // среднее время выполнения запроса
 }
 
 // конструктор
@@ -45,7 +51,7 @@ func NewWorkerPool(countWorkers int, tr TaskReceiverI, rs ResultSaverI) *WorkerP
 		workerResultCH: make(chan *result.Result), // канал для передачи результата от воркеров
 		tr:             tr,
 		rs:             rs,
-		workers:        make([]*worker.Worker, 0),
+		workersCH:      make(chan WorkerI, countWorkers),
 	}
 }
 
@@ -54,9 +60,6 @@ func NewWorkerPool(countWorkers int, tr TaskReceiverI, rs ResultSaverI) *WorkerP
 func (p *WorkerPool) Start(ctx context.Context) chan struct{} {
 
 	fmt.Println("СТАРТ")
-
-	// Засекаем время перед началом работы
-	startTime := time.Now()
 
 	// созадем воркеров
 	for i := 1; i <= p.countWorkers; i++ {
@@ -67,7 +70,7 @@ func (p *WorkerPool) Start(ctx context.Context) chan struct{} {
 	p.wg.Add(1) // увеличиваем wg для того, чтобы сгенерировать задачи и не закрытьтся раньше времени
 
 	// начинаем генерировать задачи
-	p.tr.Start(ctx, &p.wg)
+	go p.tr.Start(ctx, &p.wg)
 
 	// канал для уведомления о завершении всех worker'ов
 	doneChan := make(chan struct{})
@@ -85,22 +88,6 @@ func (p *WorkerPool) Start(ctx context.Context) chan struct{} {
 	// запускаем таймер изменения количества воркеров
 	go p.changeWorkersCountTimer(ctx)
 
-	select {
-	// следим за каналом окончания работы
-	case <-doneChan:
-		fmt.Println("все воркеры завершили работу")
-	}
-
-	// Засекаем время после получения ответа
-	endTime := time.Now()
-	duration := endTime.Sub(startTime)
-
-	fmt.Println("*************************************************")
-	fmt.Printf("общее время выполнения работы: %f s\n", float64(duration)/float64(time.Second))
-	fmt.Printf("воркеров: %d, логических ядер: %d, логических процессоров: %d\n", p.countWorkers, runtime.NumCPU(), runtime.GOMAXPROCS(0))
-	fmt.Printf("среднее время выполнения запроса: %f ms\n", float64(p.averageRequestTime)/float64(time.Millisecond))
-	fmt.Println("ФИНИШ")
-
 	// возвращаем сигнальный канал о завершении работы  worker pool
 	return doneChan
 }
@@ -111,10 +98,14 @@ func (p *WorkerPool) Start(ctx context.Context) chan struct{} {
 func (p *WorkerPool) addWorker(ctx context.Context, ind int, taskCH chan *task.Task, resultCH chan *result.Result) {
 
 	// созадем воркера
+	// TODO: я здесь создаю структуру Worker, которая удовлетворяет интерфейсу WorkerI.
+	// как то мне не нравится, что я создаю конкретный объект в этом месте.
+	// Больше нравится идея, в main указать с какии объектом буду работать вместо интерфейса
+	// но пока не придумал как это красиво сделать (по типу Dependency Injection)
 	worker := worker.NewWorker(ind, taskCH, resultCH)
 
-	// добавляем воркера в слайс
-	p.workers = append(p.workers, worker)
+	// добавляем воркера в канал воркеров
+	p.workersCH <- worker
 
 	// дожидаемся окончания его работы
 	p.wg.Add(1)
@@ -133,10 +124,12 @@ func (p *WorkerPool) saveResults(ctx context.Context) {
 			return
 
 		// берем результат из очереди
-		case result, ok := <-p.workerResultCH:
+		case result := <-p.workerResultCH:
 
+			fmt.Println("worker result received")
 			// сохраняем результат
-			p.rs.SaveResult(result, ok)
+			p.rs.SaveResult(result)
+			fmt.Println("worker result saved")
 
 			// считаем среднее время всех запросов
 			if p.averageRequestTime == 0 {
@@ -163,20 +156,22 @@ func (p *WorkerPool) changeWorkersCountTimer(ctx context.Context) {
 		case <-ticker.C:
 			// в зависимости от времени добавляем воркеров
 			if p.averageRequestTime > addWorkersRequestDuration {
-				p.addWorker(ctx, len(p.workers), p.tr.GetTaskCH(), p.workerResultCH)
+				p.addWorker(ctx, len(p.workersCH), p.tr.GetTaskCH(), p.workerResultCH)
 			}
 
 			// в зависимости от времени убираем воркеров
 			if p.averageRequestTime < deleteWorkersRequestDuration {
-				// находим индекс последнего воркера
-				lastInd := len(p.workers) - 1
+				// берем воркера изочереди
+				worker := <-p.workersCH
 
 				// закрываем последнего воркера
-				p.workers[lastInd].Close()
-
-				// удаляем воркера из слайса
-				p.workers = p.workers[:lastInd]
+				worker.Close()
 			}
 		}
 	}
+}
+
+func (p *WorkerPool) GetAverageRequestTime() time.Duration {
+
+	return p.averageRequestTime
 }
